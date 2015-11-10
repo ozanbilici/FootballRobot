@@ -1,80 +1,85 @@
-/*
- * main.c
- *
- *  Created on: Oct 22, 2015
- *      Author: ozan
- */
+
+#define F_CPU 16000000UL
 
 #include <avr/io.h>
 #include <util/delay.h>
+#include <avr/interrupt.h>
 
-
+// variables
+volatile int newData = 0;
 char data[16];
 volatile int i = 0;
-volatile int newData = 0;
+volatile int charger = 0;
+int startSaving = 0;
 
-// PD4 - Done
-// PC6 - PWM for dribbler motor
+void UsartInit() {
+	// Set the USART Pin as output
+	DDRD &= ~(0b11001000);
+	DDRD |= 0b11000100;
 
-ISR(USART1_RX_vect){
-	  unsigned char ch = UDR1;
+	PORTD &= ~(0x80);
 
-	  if(ch >= ' ' && ch <= '~'){
-	    data[i] = ch;
-	    i++;
-	  }
-
-	  if(ch == '\n' || ch == '\r'){
-	    data[i] = '\0';
-	    i = 0;
-	    newData = 1;
-	    return;
-	  }
-}
-
-ISR(PCINT0_vect) {
-	if(((PINB & 0b00010000) >> 4) == 0) {
-		reset_charge();
-	}
-}
-
-void init_uart(unsigned int baud) {
-	// enable the global interupt
-	SREG |= (1 << 7);
-
-	// set the baud rate - 19200
-	//UBRRH1 = (unsigned char) (baud >> 8);
-	//UBRRL1 = (unsigned char) (baud);
-	UBRR1 = 51;
-
-	// enable rx interupt, receiver and transmitter
-	UCSR1B = (1 << 7) | (1 << 4) | (1 << 3) ;
-
+	UCSR1A = 2;
+	// baud rate : 19200
+	UBRR1 = 12;
+	// enable Read interrupt, receiver and transmitter
+	UCSR1B = (1<<RXEN1)|(1<<TXEN1);
 	// set frame format : 8 data 1 stop bit no parity
-	UCSR1C =  (3 << 1);
+	UCSR1C = (1<<USBS1)|(3<<UCSZ10);
+
+	UCSR1B |= (1 << 7);
 }
 
-void sendData(char* data) {
-	PORTD &= ~0x10000000; // reset the receiver enable
-	PORTD |= 0x01000000; // set the transmit enable
+void UsartSend(const char* data) {
+  PORTD |= 0b01000000;
 
-	while(*data) {
-		while(!( UCSR1A & (1<<UDRE1)));
-		UDR1 = *data;
-		*data++;
-	}
-	 _delay_ms(5);
-	PORTD &= ~0x01000000; // reset the transmit enable
-	PORTD |= 0x10000000; // set the receiver enable
+  //data = "derp\n\0";
+
+  while(*data){
+	  while(!( UCSR1A & (1<<UDRE1)));
+	  UDR1 = *data;
+	  data++;
+  }
+
+  _delay_ms(5);
+  PORTD &= 0b00111111;
 }
-// reset the all leds
-void resetLed() {
-	PORTF |= 0b11110011; // reset all led pins
+
+void PWMInit() {
+	// set PC6 as output
+	DDRC |= (1 << 6);
+
+	TCCR3A &= ~(0b11110011);
+	TCCR3A |= 0b11000011;
+
+	TCCR3B &= (0b01110000);
+	TCCR3B |=  (1 << 3) | (3 << 0); // 62 500 Hz
+
+	OCR3A =  0x3ff;
+}
+
+void IOInit() {
+	//disable JTAG, needed to use some of the pins on the MCU
+	MCUCR|= (1<<JTD); //in order to change this value, it is needed to
+	MCUCR|= (1<<JTD); //overwrite this value twice during 4 clock cycles
+
+	// set the direction of led pins as output
+	DDRF = 0b11110011;
+
+	// set kick and charge pin as output
+	DDRD |= 0b00110000;
+
+	// set the done pin as input and initialize the interrupt
+	DDRB &= ~(0b00010000);
+	PCMSK0 |= (0b00010000);
+	PCICR = 0x01;
+
+	// ball detection set as input
+	DDRE &= ~(1 << 6);
 }
 
 // set the led what you want to color
 void setLed(int value) {
-	resetLed();
 	//
 	// value = 1 => LED2Green
 	// value = 2 => LED2Red
@@ -85,115 +90,156 @@ void setLed(int value) {
 	//
 
 	switch(value) {
-	case 1:
-		PORTF &= ~0b00000001;
+		case 1:
+		PORTF = 0b11110010;
 		break;
-	case 2:
-		PORTF &= ~0b00000010;
+		case 2:
+		PORTF = 0b11110001;
 		break;
-	case 3:
-		PORTF &= ~0b00010000;
+		case 3:
+		PORTF = 0b11100011;
 		break;
-	case 4:
-		PORTF &= ~0b00100000;
+		case 4:
+		PORTF = 0b11010011;
 		break;
-	case 5:
-		PORTF &= ~0b01000000;
+		case 5:
+		PORTF = 0b10110011;
 		break;
-	case 6:
-		PORTF &= ~0b10000000;
+		case 6:
+		PORTF = 0b01110011;
 		break;
 
 	}
 }
 
-void set_charge() {
-	PORTD |= 0b00100000;
-}
 
-void reset_charge() {
-	PORTD &= 0b11011111;
-}
+ISR(USART1_RX_vect){
 
-void set_kick() {
-	PORTD |= 0b00010000;
-}
+	unsigned char character = UDR1;
 
-void reset_kick() {
-	PORTD &= 0b11101111;
-}
+	if(character == '5') {
+		i = 0;
+		startSaving = 1;
+	}
 
-int ifBall() {
-	if(((PINE & 0x01000000) >> 6) == 1) {
-		return 1;
-	} else {
-		return 0;
+	if(startSaving == 1) {
+		if(character >= ' ' && character <= '~'){
+			data[i] = character;
+			i++;
+		}
+
+		if(character == '\n' || character == '\r'){
+			data[i] = '\0';
+			i = 0;
+			newData = 1;
+			startSaving = 0;
+
+			return;
+		}
 	}
 }
+
+ISR(PCINT0_vect) {
+	if(((PORTD >> 4) & 0x1) == 0) {
+		PORTD &= ~(1 << 4);
+	}
+}
+
 
 int main() {
-	// Setting Clock
-
-	// Use external clock
-	CLKPR = 0x80;
-	CLKPR = 0x00;
-
-	// set the direction of led pins as output
-	DDRF |= 0b11110011;
-
-    // set the ball detection pin as input
-	DDRE &= 0b10111111;
-	PORTE &= 0b10111111; // pull up resistor off
-
-	// set the de,re, kick and charge pin as output
-	DDRD |= 0b11110000;
-	PORTD |= 0x10000000; // set the receiver enable
+	// Clock Initialize
+	//CLKPR = 0x80;
+	//CLKPR = 0x00;
+	//CLKSEL0 = 0x05;
+	/*CLKSEL0 = 0x05;
+	CLKSEL1 = 0x08;
+	while(!(CLKSTA & 0x01));*/
 
 
-	//initialization uart
-	init_uart();
 
-	// Set PB4 as input for checking if it is done
-	DDRB &= ~0b00010000;
-	PCMSK0 = (1 << 4); // set interupt mask for PB4
-	PCICR = 0x01; // enable PCINT
+	// USART Initialize
+	UsartInit();
 
-	resetLed();
+	// IO Pins Initialize
+	IOInit();
+
+	// PWM Initialize
+	PWMInit();
+
+
+	// Global Interrupt Enable
+	SREG |= (1 << 7);
+
+
+	setLed(1);
+
+
+	//
+	// 5:kr : kick run
+	// 5:ks : kick stop
+	// 5:cr : charge run
+	// 5:cs : charge stop
+	// 5:if : dribler stop
+	// 5:dr : dribler run
+	// 5:ds : dribler stop
+	//
 
 	while(1) {
-		if(newData == 1) {
-			if((data[0] == '5') && (data[1] == ':')) {
-				if((data[3] == 'k') && (data[4] == 'i')) {
-					set_kick();
-					setLed(1);
-				} else if((data[3] == 'c') && (data[4] == 'h')) {
-					reset_kick();
-					set_charge();
-					setLed(2);
-				} else if((data[3] == 'i') && (data[4] == 'b')) {
-					if(ifBall() == 1) {
-						sendData("yes\n\r");
-					} else {
-						sendData("no\n\r");
-					}
 
-					setLed(3);
+		if(newData == 1) {
+
+			if((data[0] == '5') && (data[1] == ':')) {
+
+				if((data[2] == 'k') && (data[3] == 'r')) {
+					// stop charging
+					PORTD &= ~(1 << 4);
+
+					// kick the ball
+					PORTD |= (1 << 5);
+					setLed(4);
+				}
+				else if((data[2] == 'k') && (data[3] == 's')) {
+					// stop charging
+					PORTD &= ~(1 << 4);
+
+					// stop kicking
+					PORTD &= ~(1 << 5);
+					setLed(5);
+				}
+				else if((data[2] == 'c') && (data[3] == 'r')) {
+					charger = 1;
+					PORTD &= ~(1<<5); // close kicking
+					PORTD |= (1 << 4); // start charging
+					setLed(4);
+
+				}
+				else if((data[2] == 'c') && (data[3] == 's')) {
+					charger = 1;
+					PORTD &= ~(1<<5); // close kicking
+					PORTD &= ~(1 << 4); // start charging
+					setLed(5);
+
+				}
+				else if((data[2] == 'i') && (data[3] == 'b')) {
+					setLed(4);
+					if(((PORTE >> 6) & 0x01) == 1) {
+						UsartSend("no\r\n");
+						} else {
+						UsartSend("yes\r\n");
+					}
+				} else if((data[2] == 'd') && (data[3] == 'r')) {
+					setLed(4);
+					OCR3A =  723;
+				} else if((data[2] == 'd') && (data[3] == 's')) {
+					setLed(5);
+					OCR3A =  0x3ff;
 				}
 			}
 
-			// data commands already read
 			newData = 0;
 		}
 
-		if(ifBall() == 1) {
-			setLed(1);
-		} else {
-			setLed(2);
-		}
 	}
-
 
 	return 1;
 }
-
-
