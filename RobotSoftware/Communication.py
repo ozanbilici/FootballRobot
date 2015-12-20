@@ -3,7 +3,7 @@ __author__ = 'ozan'
 import serial
 
 
-class Motor:
+class Communication:
     def __init__(self):
         self.fl = '2'
         self.bl = '3'
@@ -22,10 +22,15 @@ class Motor:
 	#
 
     def kickBall(self):
-        self.ser.write("5:ki\r\n")
+        print 'kicked ball'
+        self.ser.write('5:kr\r\n')
 
     def startCharging(self):
-        self.ser.write("5:sc\r\n")
+        print 'start charging'
+        self.ser.write('5:cr\r\n')
+
+    def stopCharging(self):
+        self.ser.write("5:cs\r\n")
 
     def startDribler(self):
         self.ser.write("5:dr\r\n")
@@ -34,31 +39,21 @@ class Motor:
         self.ser.write("5:ds\r\n")
 
     def ifBallCaptured(self):
-        self.ser.write("5:ib\r\n")
+        try:
+            self.ser.write("5:ib\r\n")
 
-        line = []
-        counter = 0
-        for c in self.ser.read():
-            line.append(c)
-            if c == '/0':
-                print("Ball Captured : " + line)
+            line = self.ser.readline()
 
+            if 'y' in str(line):
+                print "Ball Captured : true"
+                return True
+            else :
+                print "Ball Captured : false"
+                return False
+        except self.ser.SerialTimeoutException:
+            print "Ball Captured : timeout false"
+            return False
 
-        return True
-
-
-    def ifBallCaptured(self):
-        self.ser.write("5:ib\r\n")
-
-        line = []
-        counter = 0
-        for c in self.ser.read():
-            line.append(c)
-            if c == '/0':
-                print("Ball Captured : " + line)
-
-
-        return True
 
     def forward(self,speed):
         self.ser.write(self.fr+':sd'+speed+'\r\n')
@@ -71,6 +66,15 @@ class Motor:
         self.ser.write(self.fl+':sd-'+speed+'\r\n')
         self.ser.write(self.br+':sd'+speed+'\r\n')
         self.ser.write(self.bl+':sd-'+speed+'\r\n')
+
+    def forwardwitherror(self,speed,error):
+        v1 = str(int(speed+error))
+        v2 = str(int(speed-error))
+
+        self.ser.write(self.fr+':sd'+v1+'\r\n')
+        self.ser.write(self.fl+':sd-'+v2+'\r\n')
+        self.ser.write(self.br+':sd'+v1+'\r\n')
+        self.ser.write(self.bl+':sd-'+v2+'\r\n')
 
     def backward(self,speed):
         self.ser.write(self.fr+':sd-'+speed+'\r\n')
@@ -105,12 +109,12 @@ class Motor:
 
     def stop(self):
         self.ser.write(self.fr+':sd0\r\n')
-        self.ser.write(fl+':sd0\r\n')
+        self.ser.write(self.fl+':sd0\r\n')
         self.ser.write(self.br+':sd0\r\n')
         self.ser.write(self.bl+':sd0\r\n')
 
     def connect(self):
-        self.ser = serial.Serial('/dev/ttyUSB0',19200)
+        self.ser = serial.Serial('/dev/ttyUSB0',19200, timeout=.1)
 
         try :
             self.ser.isOpen()

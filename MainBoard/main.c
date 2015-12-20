@@ -193,7 +193,7 @@ int main() {
 
 					// kick the ball
 					PORTD |= (1 << 5);
-					setLed(4);
+					setLed(1);
 				}
 				else if((data[2] == 'k') && (data[3] == 's')) {
 					// stop charging
@@ -201,34 +201,34 @@ int main() {
 
 					// stop kicking
 					PORTD &= ~(1 << 5);
-					setLed(5);
+					setLed(2);
 				}
 				else if((data[2] == 'c') && (data[3] == 'r')) {
 					charger = 1;
 					PORTD &= ~(1<<5); // close kicking
 					PORTD |= (1 << 4); // start charging
-					setLed(4);
+					setLed(1);
 
 				}
 				else if((data[2] == 'c') && (data[3] == 's')) {
 					charger = 1;
 					PORTD &= ~(1<<5); // close kicking
 					PORTD &= ~(1 << 4); // start charging
-					setLed(5);
+					setLed(2);
 
 				}
 				else if((data[2] == 'i') && (data[3] == 'b')) {
-					setLed(4);
-					if(((PORTE >> 6) & 0x01) == 1) {
-						UsartSend("no\r\n");
-						} else {
+					setLed(1);
+					if(((PINE >> 6) & 0x01) == 1) {
 						UsartSend("yes\r\n");
+						} else {
+						UsartSend("nos\r\n");
 					}
 				} else if((data[2] == 'd') && (data[3] == 'r')) {
-					setLed(4);
-					OCR3A =  723;
+					setLed(1);
+					OCR3A =  523;
 				} else if((data[2] == 'd') && (data[3] == 's')) {
-					setLed(5);
+					setLed(2);
 					OCR3A =  0x3ff;
 				}
 			}

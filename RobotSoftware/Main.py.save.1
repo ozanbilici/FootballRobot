@@ -1,0 +1,214 @@
+__author__ = 'ozan'
+
+import numpy as np
+import cv2
+import time
+from Communication import *
+from Referee import *
+import time
+
+class Main(threading.Thread) :
+    def __init__(self, threadID, name,  Communication):
+        threading.Thread.__init__(self)
+        self.threadID = threadID
+        self.name = name
+
+        # motor run
+        self.communication =  Communication
+
+        #video channel
+        self.video_channel = 2
+        self.video_channel_goal = 0
+
+        #referee signal
+        self.mode = 1
+
+        self.modechanging = 1
+
+
+    def capture_video_frame(self,video_channel):
+        # capturing video from video channel
+        cap = cv2.VideoCapture(video_channel)
+        return cap
+
+    def main_frame(self,cap):
+        ret, vid = cap.read()
+        vid = cv2.flip(vid,0)
+        vid = cv2.flip(vid,1)
+        return vid
+
+    def contour_ball_detection(self,vid):
+        global mode
+        # Applying Gaussian Blur filtering to smooth the image
+        gblur_vid = cv2.GaussianBlur(vid,(5,5),0)
+        # Changing to HSV colorspace to filter out other color than blue
+        hsv = cv2.cvtColor(gblur_vid, cv2.COLOR_BGR2HSV)
+        # defining lower blue range
+        lo = np.array([5,125,125])
+        # defining higher blue range
+        ho = np.array([15,255,255])
+        # masking other color than blue
+        mask = cv2.inRange(hsv,lo,ho)
+        # defining kernel for erosion
+        kernel = np.ones((3,3),np.uint8)
+        # Erode
+        mask = cv2.erode(mask,kernel,iterations = 1)
+        # Dilate
+        mask = cv2.dilate(mask,kernel,iterations = 1)
+        # find contours in the threshold image
+        _,contours,hierarchy = cv2.findContours(mask,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+        # Drawing contours
+        cv2.drawContours(vid, contours, -1, (0,255,0), 3)
+        ctr = 0
+        x = [0,0,0,0,0,0,0,0,0,0,0]
+        y = [0,0,0,0,0,0,0,0,0,0,0]
+        for i in contours:
+        # Moments
+            m = cv2.moments(i)
+            # Centroid
+            try:
+                cx = int(m['m10']/m['m00'])
+                cy = int(m['m01']/m['m00'])
+                x[ctr] = cx
+                y[ctr] = cy
+                pos = str(cx) + ' ' + str(cy)
+                print str(cx) + ' ' + str(cy) + '\n'
+                ctr += 1
+             #Printing centroid position in vid
+                cv2.putText(vid,pos,(cx+5,cy+5), cv2.FONT_HERSHEY_SIMPLEX,1,(0,255,0))
+            except:
+                pass
+                
+
+        maxcy = max(y)
+        find = y.index(maxcy)
+        print 'max cy = ' ,x[find]
+        if x[find] < 300:
+            self.communication.rotateLeft('10')
+        elif x[find] > 400:
+            self.communication.rotateRight('10')
+        else:
+            if 50 < maxcy < 475:
+                self.communication.forward('30')
+            elif 472 < maxcy < 478:
+                self.communication.stop()
+        if self.communication.ifBallCaptured() == True :
+            self.mode = 2
+            self.modechanging = 1
+        time.sleep(10)
+        self.communication.stop()
+        return vid
+
+
+
+    def contour_goal_detection(self,vid):
+	    #vid = self.main_frame(cv2.VideoCapture(self.video_channel_goal))
+        # Applying Gaussian Blur filtering to smooth the image
+        gblur_vid = cv2.GaussianBlur(vid,(5,5),0)
+        # Changing to HSV colorspace to filter out other color than blue
+        hsv = cv2.cvtColor(gblur_vid, cv2.COLOR_BGR2HSV)
+        # defining lower blue range
+        #lb = np.array([90,50,50])
+        # defining higher blue range
+        #hb = np.array([130,255,255])
+
+
+        # defining lower yellow range
+        lb = np.array([20,100,100])
+        # defining higher yellow range
+        hb = np.array([30,255,255])
+
+
+        # masking other color than blue
+        mask = cv2.inRange(hsv,lb,hb)
+
+    # find contours in the threshold image
+        _,contours,hierarchy = cv2.findContours(mask,cv2.RETR_LIST,cv2.CHAIN_APPROX_SIMPLE)
+
+        # finding contour with maximum area and store it as best_cnt
+        max_area = 0
+        try:        
+            for cnt in contours:
+                area = cv2.contourArea(cnt)
+                if area > max_area:
+                    max_area = area
+                    best_cnt = cnt
+                    self.communication.stop()
+        except:
+            self.communication.rotateLeft('5')
+
+        # finding centroids of best_cnt and draw a circle there
+        M = cv2.moments(best_cnt)
+        cx,cy = int(M['m10']/M['m00']), int(M['m01']/M['m00'])
+        cv2.circle(vid,(cx,cy),5,255,-1)
+
+        if cx < 350:
+            communication.rotateLeft('10')
+        elif cx > 390:
+            communication.rotateRight('10')
+        else:
+            self.communication.stop()
+            self.communication.startCharging()
+            print 'charge'
+            time.sleep(2)
+            self.communication.kickBall()
+
+            self.mode = 1
+            self.modechanging = 1
+
+
+    def display_video(self,input_org,input_fin):
+        # Display Video frames
+        #cv2.imshow('ORIGINAL',input_org)
+        cv2.imshow('Final',input_fin)
+        pass
+
+    def run(self):
+        cap = self.capture_video_frame(self.video_channel)
+        while True:
+
+            if self.mode == 0:
+                if self.modechanging == 1:
+                    print 'Waiting for referee command'
+          
+                    self.modechanging = 0
+                self.communication.ifBallCaptured()
+            elif self.mode == 1:
+                if self.modechanging == 1:
+                    print 'Tracking ball'
+                    self.communication.forward('30')
+                    self.modechanging = 0
+
+                vid = self.main_frame(cap)
+                vid_fin = self.contour_ball_detection(vid)
+                self.display_video(vid,vid_fin)
+
+            elif self.mode == 2:
+                if self.modechanging == 1:
+                    print 'Kicking ball to the goal'
+                    self.modechanging = 0
+                vid = self.main_frame(cap)
+                self.contour_goal_detection(vid)
+                #self.display_video(vid)
+            key = cv2.waitKey(100) & 0xFF
+            if key==27:
+                break
+
+
+
+if __name__ == '__main__':
+    communication = Communication()
+    communication.connect()
+
+    #------------------------------------------------------
+    #Run the referee
+    main = Main(0, "Main", communication)
+
+    #------------------------------------------------------
+    #Run the referee
+    referee = Referee(1, "Referee", 'A', 'A', main)
+    referee.connect()
+    main.start()
+    referee.start()
+
+
