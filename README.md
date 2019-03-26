@@ -1,3 +1,11 @@
-# PWR
+# Football Robot Project
 
-This project is for practical work in robotic course.
+This project is developed and designed for Robotics course. The software is platform dependent. Some part of the code refactored.
+
+## Code structure
+
+- `Algorithm` Algorithm of football player robot.
+
+## Author
+
+- Ozan Bilici - ozanbilici@gmail.com
